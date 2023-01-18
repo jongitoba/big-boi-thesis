@@ -345,7 +345,7 @@ def create_heatmaps():
 
 
 # - - - Main - - -
-#compare_baseline_to_battery(True)
+compare_baseline_to_battery(True)
 #create_heatmaps()
 #to_excel()
 
