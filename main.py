@@ -42,8 +42,7 @@ popConst_Oslo = peopleInHousehold / 2742
 popConst_Tromso = peopleInHousehold / 482
 mva = 0.25  # 25% VAT
 
-
-# Class to define each power region
+# pychClass to define each power region
 class Region:
     def __init__(self, name, demand, price, popConst):
         self.name = name
@@ -64,7 +63,7 @@ Regions = [NO1, NO3, NO4]
 # - - - Functions - - -
 
 # Writes all demand and prices to Excel - - - - - - - - - - - - - - -
-def toExcel():
+def to_excel():
     NO1_df = pd.DataFrame()
     NO3_df = pd.DataFrame()
     NO4_df = pd.DataFrame()
@@ -117,7 +116,7 @@ def toExcel():
 
 
 # Calculates baseline cost - no battery - - - - - - - - - - - - - - -
-def baselineCost(NOx, writeOut):
+def baseline_cost(NOx, writeOut):
     cost = 0
 
     for i in NOx.demand.columns:
@@ -135,7 +134,7 @@ def baselineCost(NOx, writeOut):
 
 
 # Calculate cost  with battery - - - - - - - - - - - - - - -
-def batteryCost(NOx, writeOut):
+def battery_cost(NOx, writeOut):
     # df and list for gathering battery data in Excel
     tb_df = pd.DataFrame()
     tb_P_imp = []
@@ -219,7 +218,7 @@ def batteryCost(NOx, writeOut):
     tb_df["Battery charged"] = tb_P_ch
     tb_df["Battery discharged"] = tb_P_dis
     tb_df["Battery level"] = tb_B
-    tb_df["Baseline cost"] = baselineCost(NOx, 0)
+    tb_df["Baseline cost"] = baseline_cost(NOx, 0)
     tb_df["Cost with battery"] = model.objFunc()
 
     with pd.ExcelWriter("Test battery data.xlsx", engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
@@ -230,13 +229,13 @@ def batteryCost(NOx, writeOut):
 
 # Compares the baseline case with the battery case - - - - - - - - - - - - - - -
 # If writeOut = True, then the cost for each case is also printed, not just the savings
-def compareBaselineToBattery(writeOut):
+def compare_baseline_to_battery(writeOut):
     startTime = time.time()
 
     for NOx in Regions:
         print("- - - Region: ", NOx.name, " - - -")
-        costNormal = baselineCost(NOx, writeOut)
-        costBattery = batteryCost(NOx, writeOut)
+        costNormal = baseline_cost(NOx, writeOut)
+        costBattery = battery_cost(NOx, writeOut)
 
         diff_cost = "{:.2f}".format(costNormal - costBattery)
         print("Money saved:", diff_cost, "NOK \n")
@@ -250,7 +249,7 @@ def compareBaselineToBattery(writeOut):
 
 
 # Creates heatmap for demand - - - - - - - - - - - - - - -
-def demandHeatmap(NOx):
+def demand_heatmap(NOx):
     demand = np.array(NOx.demand)
 
     fig, ax = plt.subplots()
@@ -294,7 +293,7 @@ def demandHeatmap(NOx):
 
 
 # Creates heatmap for price - - - - - - - - - - - - - - -
-def priceHeatmap(NOx):
+def price_heatmap(NOx):
     price = np.array(NOx.price)
 
     fig, ax = plt.subplots()
@@ -338,16 +337,16 @@ def priceHeatmap(NOx):
 
 
 # Creates heatmaps for both demand and price for all regions  - - - - - - - - - - - - - - -
-def createHeatmaps():
+def create_heatmaps():
     for NOx in Regions:
-        demandHeatmap(NOx)
-        priceHeatmap(NOx)
+        demand_heatmap(NOx)
+        price_heatmap(NOx)
 
     return
 
 
 # - - - Main - - -
-compareBaselineToBattery(True)
-# createHeatmaps()
-# toExcel()
+compare_baseline_to_battery(True)
+#create_heatmaps()
+to_excel()
 
