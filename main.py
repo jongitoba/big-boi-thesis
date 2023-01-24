@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Oct 11 11:46:40 2022
-
 @author: Jon Olav Båtbukt
+Master Thesis Spring 2023
 """
 
 # - - - Setup - - -
@@ -346,7 +345,10 @@ def create_heatmaps():
 
 
 # - - - Main - - -
-compare_baseline_to_battery(True)
+#compare_baseline_to_battery(True)
 #create_heatmaps()
-to_excel()
+#to_excel()
+
+
+
 
