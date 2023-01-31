@@ -43,7 +43,7 @@ popConst_Tromso = peopleInHousehold / 482
 # Constants - Money
 vat = 0.25  # 25% VAT
 vatBaseline = 1  # Base VAT-multiplier
-sellConst = 0.25  # Price of selling power back to the grid compared to price of buying power
+sellConst = 0.9  # Price of selling power back to the grid compared to price of buying power
 
 # Constants - Battery
 n_ch = 0.92  # Charging efficiency
@@ -186,7 +186,8 @@ def battery_cost(NOx, writeOut):
         vatVar = vatBaseline
 
     # Creates objective function:
-    obj = sum(model.P_imp[i] * p[i] * vatVar - (model.P_dis_S[i] * sellConst) for i in range(nrHours))
+    # TODO Something fucky with obj.func - multiply with price where?
+    obj = sum(p[i] * (model.P_imp[i] * vatVar - (model.P_dis_S[i] * sellConst)) for i in range(nrHours))
     model.objFunc = pyo.Objective(expr=obj, sense=pyo.minimize)
 
     # Create constraints:
