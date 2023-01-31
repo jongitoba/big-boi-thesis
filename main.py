@@ -33,13 +33,27 @@ demandDataNO4.name = "demandDataNO4"
 priceDataTromso = pd.read_excel("NordPoolPriceTromsoSep2022.xlsx", "Data", usecols='B:AE')  # NOK/MWh
 priceDataTromso.name = "priceDataTromso"
 
-# Constants
+# Constants - Time and population
 nrHours = 720  # Hours in september (30 days)
 peopleInHousehold = 4  # Guesstimate on amount of people in a household
 popConst_Trheim = peopleInHousehold / 737
 popConst_Oslo = peopleInHousehold / 2742
 popConst_Tromso = peopleInHousehold / 482
-mva = 0.25  # 25% VAT
+
+# Constants - Money
+vat = 0.25  # 25% VAT
+vatBaseline = 1  # Base VAT-multiplier
+sellConst = 0.25  # Price of selling power back to the grid compared to price of buying power
+
+# Constants - Battery
+n_ch = 0.92  # Charging efficiency
+n_dis = 0.95  # Discharging efficiency
+B_f = 5  # Battery level in the first hour
+B_l = B_f  # Battery level in the last hour
+B_capMax = 9  # Battery max capacity
+B_chMax = 4.5  # Max charging rate
+B_disMax = 4.5  # Max discharge rate
+
 
 # pychClass to define each power region
 class Region:
@@ -123,7 +137,7 @@ def baseline_cost(NOx, writeOut):
             cost += float(NOx.demand[i].iloc[j]) * NOx.popConst * float(NOx.price[i].iloc[j]) * 10 ** -3  # kWh / person
 
     if (NOx.name != "NO4"):
-        cost = cost * (1 + mva)
+        cost = cost * (vatBaseline + vat)
 
     format_cost = "{:.2f}".format(cost)
     if (writeOut):
@@ -135,11 +149,15 @@ def baseline_cost(NOx, writeOut):
 # Calculate cost  with battery - - - - - - - - - - - - - - -
 def battery_cost(NOx, writeOut):
     # df and list for gathering battery data in Excel
+    # tb = Test Battery
     tb_df = pd.DataFrame()
     tb_P_imp = []
     tb_B = []
     tb_P_ch = []
     tb_P_dis = []
+    tb_P_dis_H = []
+    tb_P_dis_S = []
+    tb_p = []
 
     # Create model
     model = pyo.ConcreteModel()
@@ -152,27 +170,23 @@ def battery_cost(NOx, writeOut):
             P_load.append(NOx.demand[i].iloc[j] * NOx.popConst)
             p.append(NOx.price[i].iloc[j] * 10 ** -3)
 
-    n_ch = 0.92  # Charging efficiency
-    n_dis = 0.95  # Discharging efficiency
-    B_f = 5  # Battery level in the first hour
-    B_l = B_f  # Battery level in the last hour
-    B_capMax = 9  # Battery max capacity
-    B_chMax = 4.5  # Max charging rate
-    B_disMax = 4.5  # Max discharge rate
-    vatVar = 1  # Base VAT-multiplier
 
     # Creates Variables:
     model.P_imp = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power imported from grid
     model.P_ch = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power charged to battery
     model.P_dis = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power discharged from battery
+    model.P_dis_S = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power sold to grid
+    model.P_dis_H = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power from battery to house
     model.B = pyo.Var(range(nrHours + 1),
                       within=pyo.NonNegativeReals)  # Battery level. Has [+1] so the last hour of the month equals the f
 
     if (NOx.name != "NO4"):
-        vatVar += mva
+        vatVar = vatBaseline + vat
+    else:
+        vatVar = vatBaseline
 
     # Creates objective function:
-    obj = sum(model.P_imp[i] * p[i] * vatVar for i in range(nrHours))
+    obj = sum(model.P_imp[i] * p[i] * vatVar - (model.P_dis_S[i] * sellConst) for i in range(nrHours))
     model.objFunc = pyo.Objective(expr=obj, sense=pyo.minimize)
 
     # Create constraints:
@@ -180,12 +194,13 @@ def battery_cost(NOx, writeOut):
     constraints.append(model.B[0] == B_f)
 
     for i in range(nrHours):
-        constraints.append(model.P_imp[i] + (model.P_dis[i] - model.P_ch[i]) == P_load[i])  # Power balance
+        constraints.append(model.P_imp[i] + (model.P_dis_H[i] - model.P_ch[i]) == P_load[i])  # Power balance to house
         constraints.append(model.P_ch[i] <= B_chMax)  # Max charge rate
         constraints.append(model.P_dis[i] <= B_disMax)  # Max discharge rate
+        constraints.append(model.P_dis_S[i] + model.P_dis_H[i] == model.P_dis[i])  # Discharge power balance
         constraints.append(model.B[i] <= B_capMax)  # Capacity of battery!
         constraints.append(
-            model.B[i] + model.P_ch[i] * n_ch - model.P_dis[i] / n_dis == model.B[i + 1])  # Battery balance
+            model.B[i] + model.P_ch[i] * n_ch - (model.P_dis[i]) / n_dis == model.B[i + 1])  # Battery balance
 
     # Constraints for last hour
     constraints.append(model.B[720] == B_l)  # Must start the next month with same battery level as the previous month
@@ -203,19 +218,28 @@ def battery_cost(NOx, writeOut):
         tb_B.append(model.B.get_values()[i])
         tb_P_ch.append(model.P_ch.get_values()[i])
         tb_P_dis.append(model.P_dis.get_values()[i])
+        tb_P_dis_H.append(model.P_dis_H.get_values()[i])
+        tb_P_dis_S.append(model.P_dis_S.get_values()[i])
         tb_P_imp.append(model.P_imp.get_values()[i])
+        tb_p.append(p[i])
+
 
         # Check if battery is charging and discharging at the same time
+        """""
         if (model.P_ch.get_values()[i] > 0 and model.P_dis.get_values()[i] > 0):
             print("Hour", i, ": Charge and discharge at the same time!")
+        """
 
     if (writeOut):
         format_cost = "{:.2f}".format(model.objFunc())
         print("All-knowing battery, money spent:", format_cost, "NOK")
 
     tb_df["Power imported"] = tb_P_imp
+    tb_df["Price"] = tb_p
     tb_df["Battery charged"] = tb_P_ch
     tb_df["Battery discharged"] = tb_P_dis
+    tb_df["Battery discharged to house"] = tb_P_dis_H
+    tb_df["Power sold"] = tb_P_dis_S
     tb_df["Battery level"] = tb_B
     tb_df["Baseline cost"] = baseline_cost(NOx, 0)
     tb_df["Cost with battery"] = model.objFunc()
@@ -345,7 +369,7 @@ def create_heatmaps():
 
 
 # - - - Main - - -
-#compare_baseline_to_battery(True)
+compare_baseline_to_battery(True)
 #create_heatmaps()
 #to_excel()
 
