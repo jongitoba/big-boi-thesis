@@ -320,7 +320,10 @@ def demand_heatmap(NOx):
         ax.set_title("Demand for NO4")
 
     fig.tight_layout()
-    plt.show()
+    # plt.show()
+
+    save_results_to = 'C:/Users/jobat/OneDrive - NTNU/5. Klasse/Master Thesis/LaTeX/figures/'
+    plt.savefig(save_results_to + NOx.name +'_demand_hm.png', dpi=300)
 
     return
 
@@ -364,7 +367,10 @@ def price_heatmap(NOx):
         ax.set_title("Price for Tromsø")
 
     fig.tight_layout()
-    plt.show()
+    #plt.show()
+
+    save_results_to = 'C:/Users/jobat/OneDrive - NTNU/5. Klasse/Master Thesis/LaTeX/figures/'
+    plt.savefig(save_results_to + NOx.name +'_price_hm.png', dpi=300)
 
     return
 
@@ -380,9 +386,7 @@ def create_heatmaps():
 
 # - - - Main - - -
 #compare_baseline_to_battery(True)
-#create_heatmaps()
-to_excel()
-
-
+create_heatmaps()
+#to_excel()
 
 
