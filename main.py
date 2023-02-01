@@ -43,7 +43,7 @@ popConst_Tromso = peopleInHousehold / 482
 # Constants - Money
 vat = 0.25  # 25% VAT
 vatBaseline = 1  # Base VAT-multiplier
-sellConst = 0.9  # Price of selling power back to the grid compared to price of buying power
+sellConst = 0.5  # Price of selling power back to the grid compared to price of buying power
 
 # Constants - Battery
 n_ch = 0.92  # Charging efficiency
@@ -85,31 +85,40 @@ def to_excel():
     # Oslo
     P_load_NO1 = []
     p_NO1 = []
+    p_NO1_sell = []
 
     # Trheim
     P_load_NO3 = []
     p_NO3 = []
+    p_NO3_sell = []
 
     # Tromsø
     P_load_NO4 = []
     p_NO4 = []
+    p_NO4_sell = []
 
     # Can do all areas with only iterating over NO1, because they all have the same size (720 hours = 30 days * 24 hours)
     for i in demandDataNO1.columns:
         for j in demandDataNO1.index:
             P_load_NO1.append(demandDataNO1[i].iloc[j] * popConst_Oslo)
             p_NO1.append(priceDataOslo[i].iloc[j] * 10 ** -3)
+            p_NO1_sell.append(priceDataOslo[i].iloc[j] * 10 ** -3 * sellConst)
             P_load_NO3.append(demandDataNO3[i].iloc[j] * popConst_Trheim)
             p_NO3.append(priceDataTrheim[i].iloc[j] * 10 ** -3)
+            p_NO3_sell.append(priceDataTrheim[i].iloc[j] * 10 ** -3 * sellConst)
             P_load_NO4.append(demandDataNO4[i].iloc[j] * popConst_Tromso)
             p_NO4.append(priceDataTromso[i].iloc[j] * 10 ** -3)
+            p_NO4_sell.append(priceDataTromso[i].iloc[j] * 10 ** -3 * sellConst)
 
     NO1_df["Demand [kWh]"] = P_load_NO1
     NO1_df["Price [NOK/kWh]"] = p_NO1
+    NO1_df["Sell price [NOK/kWh]"] = p_NO1_sell
     NO3_df["Demand [kWh]"] = P_load_NO3
     NO3_df["Price [NOK/kWh]"] = p_NO3
+    NO3_df["Sell price [NOK/kWh]"] = p_NO3_sell
     NO4_df["Demand [kWh]"] = P_load_NO4
     NO4_df["Price [NOK/kWh]"] = p_NO4
+    NO4_df["Sell price [NOK/kWh]"] = p_NO4_sell
 
     # Comparison
     Comparison_df["NO1 [kWh]"] = P_load_NO1
@@ -185,8 +194,8 @@ def battery_cost(NOx, writeOut):
     else:
         vatVar = vatBaseline
 
-    # Creates objective function:
     # TODO Something fucky with obj.func - multiply with price where?
+    # Creates objective function:
     obj = sum(p[i] * (model.P_imp[i] * vatVar - (model.P_dis_S[i] * sellConst)) for i in range(nrHours))
     model.objFunc = pyo.Objective(expr=obj, sense=pyo.minimize)
 
@@ -370,9 +379,9 @@ def create_heatmaps():
 
 
 # - - - Main - - -
-compare_baseline_to_battery(True)
+#compare_baseline_to_battery(True)
 #create_heatmaps()
-#to_excel()
+to_excel()
 
 
 
