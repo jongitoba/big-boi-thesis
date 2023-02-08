@@ -33,6 +33,14 @@ demandDataNO4.name = "demandDataNO4"
 priceDataTromso = pd.read_excel("NordPoolPriceTromsoSep2022.xlsx", "Data", usecols='B:AE')  # NOK/MWh
 priceDataTromso.name = "priceDataTromso"
 
+# Solar Data
+# Trheim - Gathered 8.feb 2023, Trondheim, 0.1 loss, 2019, MERRA-2, 35, 180
+# https://www.renewables.ninja
+solarDataTrheim = pd.read_excel("PV_Trheim_Sep19.xlsx", "Data", usecols='B')
+solarDataOslo = pd.read_excel("PV_Oslo_Sep19.xlsx", "Data", usecols='B')
+solarDataTromso = pd.read_excel("PV_Tromso_Sep19.xlsx", "Data", usecols='B')
+
+
 # Constants - Time and population
 nrHours = 720  # Hours in september (30 days)
 peopleInHousehold = 4  # Guesstimate on amount of people in a household
@@ -43,7 +51,7 @@ popConst_Tromso = peopleInHousehold / 482
 # Constants - Money
 vat = 0.25  # 25% VAT
 vatBaseline = 1  # Base VAT-multiplier
-sellConst = 0.5  # Price of selling power back to the grid compared to price of buying power
+sellConst = 0  # Price of selling power back to the grid compared to price of buying power
 
 # Constants - Battery
 n_ch = 0.92  # Charging efficiency
@@ -54,20 +62,24 @@ B_capMax = 9  # Battery max capacity
 B_chMax = 4.5  # Max charging rate
 B_disMax = 4.5  # Max discharge rate
 
+# Behaviour
+WRITEOUT = True
+SOLAR = True
 
 # pychClass to define each power region
 class Region:
-    def __init__(self, name, demand, price, popConst):
+    def __init__(self, name, demand, solar, price, popConst):
         self.name = name
         self.demand = demand
+        self.solar = solar
         self.price = price
         self.popConst = popConst
 
 
 # Defining each power region
-NO1 = Region("NO1", demandDataNO1, priceDataOslo, popConst_Oslo)
-NO3 = Region("NO3", demandDataNO3, priceDataTrheim, popConst_Trheim)
-NO4 = Region("NO4", demandDataNO4, priceDataTromso, popConst_Tromso)
+NO1 = Region("NO1", demandDataNO1, solarDataOslo, priceDataOslo, popConst_Oslo)
+NO3 = Region("NO3", demandDataNO3, solarDataTrheim, priceDataTrheim, popConst_Trheim)
+NO4 = Region("NO4", demandDataNO4, solarDataTromso, priceDataTromso, popConst_Tromso)
 
 # Adding all power regions to an array
 Regions = [NO1, NO3, NO4]
@@ -138,25 +150,34 @@ def to_excel():
 
 
 # Calculates baseline cost - no battery - - - - - - - - - - - - - - -
-def baseline_cost(NOx, writeOut):
+def baseline_cost(NOx, solar, writeOut):
     cost = 0
 
+    # TODO Should baseline include PV or not?
     for i in NOx.demand.columns:
         for j in NOx.demand.index:
-            cost += float(NOx.demand[i].iloc[j]) * NOx.popConst * float(NOx.price[i].iloc[j]) * 10 ** -3  # kWh / person
+            cost += float(NOx.demand[i].iloc[j]) * NOx.popConst * float(NOx.price[i].iloc[j]) * 10 ** -3
+            """
+            if (solar):
+                cost += float(NOx.demand[i].iloc[j] * NOx.popConst - NOx.solar['electricity'].iloc[6])  * float(NOx.price[i].iloc[j]) * 10 ** -3  # kWh / person
+            else:
+                cost += float(NOx.demand[i].iloc[j]) * NOx.popConst * float(NOx.price[i].iloc[j]) * 10 ** -3
+            """
 
     if (NOx.name != "NO4"):
         cost = cost * (vatBaseline + vat)
 
     format_cost = "{:.2f}".format(cost)
-    if (writeOut):
-        print("No battery, money spent:", format_cost, "NOK")
+    if (writeOut and solar):
+        print("No battery:", format_cost, "NOK")
+    elif(writeOut and not solar):
+        print("No battery:", format_cost, "NOK")
 
     return cost
 
 
 # Calculate cost  with battery - - - - - - - - - - - - - - -
-def battery_cost(NOx, writeOut):
+def battery_cost(NOx, solar, writeOut):
     # df and list for gathering battery data in Excel
     # tb = Test Battery
     tb_df = pd.DataFrame()
@@ -171,18 +192,22 @@ def battery_cost(NOx, writeOut):
     # Create model
     model = pyo.ConcreteModel()
 
-    # Parametres (demand + price)
+    # Parametres (demand, price, solar)
     P_load = []
     p = []
+    P_ch_PV = []
     for i in NOx.demand.columns:
         for j in NOx.demand.index:
             P_load.append(NOx.demand[i].iloc[j] * NOx.popConst)
             p.append(NOx.price[i].iloc[j] * 10 ** -3)
 
+    for i in range(nrHours):
+        P_ch_PV.append(NOx.solar['electricity'].iloc[i])
 
     # Creates Variables:
     model.P_imp = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power imported from grid
     model.P_ch = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power charged to battery
+    model.P_ch_H = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power charged to battery from house / grid
     model.P_dis = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power discharged from battery
     model.P_dis_S = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power sold to grid
     model.P_dis_H = pyo.Var(range(nrHours), within=pyo.NonNegativeReals)  # Power from battery to house
@@ -195,6 +220,7 @@ def battery_cost(NOx, writeOut):
         vatVar = vatBaseline
 
     # TODO Something fucky with obj.func - multiply with price where?
+    # TODO NO4 is worse with battery than without - why??? - Because baseline includes savings from PV!
     # Creates objective function:
     obj = sum(p[i] * (model.P_imp[i] * vatVar - (model.P_dis_S[i] * sellConst)) for i in range(nrHours))
     model.objFunc = pyo.Objective(expr=obj, sense=pyo.minimize)
@@ -204,8 +230,9 @@ def battery_cost(NOx, writeOut):
     constraints.append(model.B[0] == B_f)
 
     for i in range(nrHours):
-        constraints.append(model.P_imp[i] + (model.P_dis_H[i] - model.P_ch[i]) == P_load[i])  # Power balance to house
+        constraints.append(model.P_imp[i] + (model.P_dis_H[i] - model.P_ch_H[i]) == P_load[i])  # Power balance to house
         constraints.append(model.P_ch[i] <= B_chMax)  # Max charge rate
+        constraints.append(model.P_ch_H[i] + P_ch_PV[i] * solar == model.P_ch[i]) # Charge power balance
         constraints.append(model.P_dis[i] <= B_disMax)  # Max discharge rate
         constraints.append(model.P_dis_S[i] + model.P_dis_H[i] == model.P_dis[i])  # Discharge power balance
         constraints.append(model.B[i] <= B_capMax)  # Capacity of battery!
@@ -242,7 +269,7 @@ def battery_cost(NOx, writeOut):
 
     if (writeOut):
         format_cost = "{:.2f}".format(model.objFunc())
-        print("All-knowing battery, money spent:", format_cost, "NOK")
+        print("All-knowing battery:", format_cost, "NOK")
 
     tb_df["Power imported"] = tb_P_imp
     tb_df["Price"] = tb_p
@@ -251,7 +278,7 @@ def battery_cost(NOx, writeOut):
     tb_df["Battery discharged to house"] = tb_P_dis_H
     tb_df["Power sold"] = tb_P_dis_S
     tb_df["Battery level"] = tb_B
-    tb_df["Baseline cost"] = baseline_cost(NOx, 0)
+    tb_df["Baseline cost"] = baseline_cost(NOx, SOLAR, False)
     tb_df["Cost with battery"] = model.objFunc()
 
     with pd.ExcelWriter("Test battery data.xlsx", engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
@@ -262,13 +289,18 @@ def battery_cost(NOx, writeOut):
 
 # Compares the baseline case with the battery case - - - - - - - - - - - - - - -
 # If writeOut = True, then the cost for each case is also printed, not just the savings
-def compare_baseline_to_battery(writeOut):
+def compare_baseline_to_battery(solar, writeOut):
     startTime = time.time()
+
+    if (writeOut and solar):
+        print("\n- - - Solar power is enabled - - - \n")
+    elif (writeOut and not solar):
+        print("\n- - - Solar power is disabled - - - \n")
 
     for NOx in Regions:
         print("- - - Region: ", NOx.name, " - - -")
-        costNormal = baseline_cost(NOx, writeOut)
-        costBattery = battery_cost(NOx, writeOut)
+        costNormal = baseline_cost(NOx, solar, writeOut)
+        costBattery = battery_cost(NOx, solar, writeOut)
 
         diff_cost = "{:.2f}".format(costNormal - costBattery)
         print("Money saved:", diff_cost, "NOK \n")
@@ -385,8 +417,6 @@ def create_heatmaps():
 
 
 # - - - Main - - -
-#compare_baseline_to_battery(True)
-create_heatmaps()
+compare_baseline_to_battery(SOLAR, WRITEOUT)
+#create_heatmaps()
 #to_excel()
-
-
