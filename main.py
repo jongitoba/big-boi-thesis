@@ -63,8 +63,8 @@ B_chMax = 4.5  # Max charging rate
 B_disMax = 4.5  # Max discharge rate
 
 # Behaviour
-WRITEOUT = True
-SOLAR = True
+WRITEOUT = True # Write subinfo to console?
+SOLAR = True # Is PV activated?
 
 # pychClass to define each power region
 class Region:
@@ -184,6 +184,8 @@ def battery_cost(NOx, solar, writeOut):
     tb_P_imp = []
     tb_B = []
     tb_P_ch = []
+    tb_P_ch_H = []
+    tb_P_ch_PV = []
     tb_P_dis = []
     tb_P_dis_H = []
     tb_P_dis_S = []
@@ -254,6 +256,7 @@ def battery_cost(NOx, solar, writeOut):
     for i in range(nrHours):
         tb_B.append(model.B.get_values()[i])
         tb_P_ch.append(model.P_ch.get_values()[i])
+        tb_P_ch_H.append(model.P_ch_H.get_values()[i])
         tb_P_dis.append(model.P_dis.get_values()[i])
         tb_P_dis_H.append(model.P_dis_H.get_values()[i])
         tb_P_dis_S.append(model.P_dis_S.get_values()[i])
@@ -271,9 +274,11 @@ def battery_cost(NOx, solar, writeOut):
         format_cost = "{:.2f}".format(model.objFunc())
         print("All-knowing battery:", format_cost, "NOK")
 
-    tb_df["Power imported"] = tb_P_imp
+    tb_df["P_imp"] = tb_P_imp
     tb_df["Price"] = tb_p
     tb_df["Battery charged"] = tb_P_ch
+    tb_df["Charge from H"] = tb_P_ch_H
+    tb_df["Charge from PV"] = P_ch_PV
     tb_df["Battery discharged"] = tb_P_dis
     tb_df["Battery discharged to house"] = tb_P_dis_H
     tb_df["Power sold"] = tb_P_dis_S
@@ -292,10 +297,15 @@ def battery_cost(NOx, solar, writeOut):
 def compare_baseline_to_battery(solar, writeOut):
     startTime = time.time()
 
-    if (writeOut and solar):
-        print("\n- - - Solar power is enabled - - - \n")
-    elif (writeOut and not solar):
-        print("\n- - - Solar power is disabled - - - \n")
+    if (writeOut):
+        print("- - - Subinfo: Shown - - - ")
+    else:
+        print("- - - Subinfo: Hidden - - - ")
+
+    if (solar):
+        print("- - - Solar: ON - - - \n")
+    else:
+        print("- - - Solar: OFF - - - \n")
 
     for NOx in Regions:
         print("- - - Region: ", NOx.name, " - - -")
